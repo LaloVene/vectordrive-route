@@ -9,7 +9,7 @@ class CylindricalProjection(nn.Module):
     Projects three front-facing cameras into a single panorama.
     """
     def __init__(self, H_out=256, W_out=768, H_in=900, W_in=1600, 
-                 horizontal_fov=120.0, vertical_fov=40.0, default_depth=30.0):
+                 horizontal_fov=180.0, vertical_fov=40.0, default_depth=30.0):
         super().__init__()
         self.H_out = H_out
         self.W_out = W_out
@@ -34,11 +34,11 @@ class CylindricalProjection(nn.Module):
         f_virtual = H_out / (2.0 * np.tan(self.vertical_fov / 2.0))
         phi = torch.atan((H_out / 2.0 - v_cyl) / f_virtual)
         
-        # 3D direction vectors in local Ego Frame
+        # 3D direction vectors in local Ego Frame using Cylindrical Coordinates
         # NuScenes Ego Frame: X: Forward, Y: Left, Z: Up
-        x_ego = torch.cos(theta) * torch.cos(phi)
-        y_ego = torch.sin(theta) * torch.cos(phi)
-        z_ego = torch.sin(phi)
+        x_ego = torch.cos(theta)
+        y_ego = torch.sin(theta)
+        z_ego = torch.tan(phi)
         
         # Shape: (3, H_out, W_out)
         self.register_buffer("rays_ego", torch.stack([x_ego, y_ego, z_ego], dim=0))

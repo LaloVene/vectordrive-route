@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-def binary_focal_loss_with_logits(inputs, targets, alpha=0.25, gamma=2.0):
+def binary_focal_loss_with_logits(inputs, targets, alpha=0.25, gamma=2.0, weight=None):
     """
     Binary Focal Loss.
     """
@@ -14,6 +14,8 @@ def binary_focal_loss_with_logits(inputs, targets, alpha=0.25, gamma=2.0):
     if alpha >= 0:
         alpha_t = alpha * targets + (1.0 - alpha) * (1.0 - targets)
         loss = alpha_t * loss
+    if weight is not None:
+        loss = loss * weight
     return loss.mean()
 
 class MultiTaskLoss(nn.Module):
@@ -130,7 +132,19 @@ class MultiTaskLoss(nn.Module):
         drivable_target = targets['drivable_target']
         loss_drivable = binary_focal_loss_with_logits(drivable_preds, drivable_target, alpha=0.5, gamma=2.0)
         
-        loss_occupancy = binary_focal_loss_with_logits(occupancy_logits, targets['occupancy_target'], alpha=0.5, gamma=2.0)
+        # Create a distance-weighted map matching the 100x100 BEV grid size.
+        # NuScenes longitudinal range is 0.0 to 40.0m. Row 0 is 40.0m, row 99 is 0.0m.
+        # Therefore, y_coords must be 40.0 at index 0 and 0.0 at index 99.
+        y_coords = torch.linspace(40.0, 0.0, 100, device=device).view(100, 1).repeat(1, 100)
+        distance_weights = 1.0 / (y_coords + 1.0)
+        distance_weights = distance_weights / distance_weights.mean() # Normalize weights to preserve overall loss scale
+        
+        # Broadcast weight from (100, 100) to (1, 1, 100, 100)
+        distance_weights = distance_weights.unsqueeze(0).unsqueeze(0)
+        
+        loss_occupancy = binary_focal_loss_with_logits(
+            occupancy_logits, targets['occupancy_target'], alpha=0.5, gamma=2.0, weight=distance_weights
+        )
         
         # Joint total loss
         total_loss = (self.w_depth * loss_depth + 

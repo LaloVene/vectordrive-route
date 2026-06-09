@@ -74,7 +74,7 @@ def main():
     
     best_val_loss = float('inf')
     epochs_no_improve = 0
-    patience = 15
+    patience = 6
     history = {
         'train_losses': [],
         'val_losses': [],

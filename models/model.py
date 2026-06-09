@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from geometry.projection import CylindricalProjection
 from models.backbone import ImageBackbone, LSSLiftStage
@@ -49,6 +50,26 @@ class VectorDriveRouteModel(nn.Module):
         )
         self.planning_head = PlanningHead(anchors=anchors, C_bev=C_context, C_trans=256, K_anchors=K_anchors)
 
+        # Precompute BEV grid ground-plane points for validity mask projection
+        x_range = self.pool.x_range
+        y_range = self.pool.y_range
+        dx = (x_range[1] - x_range[0]) / W_bev
+        dy = (y_range[1] - y_range[0]) / H_bev
+        
+        xs = torch.linspace(x_range[0] + dx/2, x_range[1] - dx/2, W_bev)
+        ys = torch.linspace(y_range[1] - dy/2, y_range[0] + dy/2, H_bev)
+        y_grid, x_grid = torch.meshgrid(ys, xs, indexing='ij')
+        
+        X_ego = y_grid
+        Y_ego = -x_grid
+        Z_ego = torch.full_like(x_grid, -1.5) # Ground plane relative to camera height (1.5m)
+        
+        # Shape: (4, H_bev * W_bev)
+        points_ego = torch.stack([X_ego, Y_ego, Z_ego], dim=0).view(3, -1)
+        ones = torch.ones((1, points_ego.shape[1]))
+        points_ego_hom = torch.cat([points_ego, ones], dim=0)
+        self.register_buffer("bev_points_ego_hom", points_ego_hom)
+
     def forward(self, images, intrinsics, extrinsics, ego_state, h_prev=None):
         """
         Args:
@@ -61,10 +82,16 @@ class VectorDriveRouteModel(nn.Module):
             dict containing logits, trajectories, drivable_preds, occupancy_preds, depth_probs, and h_next.
         """
         # 1. Stitch camera views into cylindrical canvas panorama
-        images_cyl, _, _, _ = self.projection(images, intrinsics, extrinsics)
+        images_cyl, _, _, validity_mask = self.projection(images, intrinsics, extrinsics)
         
         # 2. Extract perspective features using ResNet-18 backbone
         feat = self.backbone(images_cyl)
+        
+        # Downsample the Stage 1 Validity Mask to match your Stride-8 feature map (32x96)
+        mask_downscale = F.interpolate(validity_mask, size=(32, 96), mode='nearest')
+        
+        # Element-wise multiply to kill any features bleeding into the vehicle's blind spots
+        feat = feat * mask_downscale
         
         # 3. Lift perspective features to 3D frustum using predicted categorical depth probabilities
         frustum, depth_probs = self.lift(feat)
@@ -81,6 +108,36 @@ class VectorDriveRouteModel(nn.Module):
         # 6. Query scene features with intent anchors via cross-attention and decode outputs
         logits, trajectories, drivable_preds, occupancy_preds = self.planning_head(h_next)
         
+        # 7. Apply ground-plane BEV validity mask to erase camera blind spot predictions
+        B = images.shape[0]
+        device = images.device
+        H_in, W_in = images.shape[3], images.shape[4]
+        
+        points_ego_hom = self.bev_points_ego_hom.unsqueeze(0).expand(B, -1, -1)
+        any_valid = torch.zeros((B, points_ego_hom.shape[2]), dtype=torch.bool, device=device)
+        
+        for c in range(3):
+            ext_c = extrinsics[:, c]
+            int_c = intrinsics[:, c]
+            
+            P_cam = torch.bmm(ext_c, points_ego_hom)
+            P_pix = torch.bmm(int_c, P_cam)
+            
+            u_pix = P_pix[:, 0] / torch.clamp(P_pix[:, 2], min=1e-5)
+            v_pix = P_pix[:, 1] / torch.clamp(P_pix[:, 2], min=1e-5)
+            
+            z_valid = P_cam[:, 2] > 0.1
+            u_valid = (u_pix >= 0) & (u_pix <= W_in - 1)
+            v_valid = (v_pix >= 0) & (v_pix <= H_in - 1)
+            
+            valid_c = z_valid & u_valid & v_valid
+            any_valid = any_valid | valid_c
+            
+        bev_validity_mask = any_valid.view(B, 1, self.pool.H_bev, self.pool.W_bev).float()
+        
+        drivable_preds = drivable_preds * bev_validity_mask
+        occupancy_preds = occupancy_preds * bev_validity_mask
+        
         return {
             'logits': logits,
             'trajectories': trajectories,
@@ -89,3 +146,11 @@ class VectorDriveRouteModel(nn.Module):
             'depth_probs': depth_probs,
             'h_next': h_next
         }
+
+    def load_state_dict(self, state_dict, strict=True):
+        # We pop precomputed buffers from the state_dict to prevent older checkpoints 
+        # from overwriting the updated horizontal FOV and voxel pooling geometry setups.
+        for key in list(state_dict.keys()):
+            if 'projection.rays_ego' in key or 'pool.flat_idx' in key or 'pool.weight' in key or 'bev_points_ego_hom' in key:
+                state_dict.pop(key)
+        return super().load_state_dict(state_dict, strict=False)

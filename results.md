@@ -8,10 +8,10 @@ This report compiles the quantitative benchmark metrics and scenario diagnostic 
 
 | Metric Category | Specific Evaluation Metric | Your Model's Score | Constant Velocity Baseline | Ego-State MLP Baseline |
 | :--- | :--- | :---: | :---: | :---: |
-| **Imitation Performance** | minADE (Trajectory L2 Error) (m) | **10.3774** | 0.5834 | 2.9092 |
-| **Safety Compliance** | Drivable Area Compliance Rate (%) | **89.23%** | 94.62% | 93.85% |
-| | Collision Rate (%) | **10.77%** | 5.38% | 6.15% |
-| **Comfort & Kinematics** | Mean Trajectory Jerk ($m/s^3$) | **1.7900** | 0.0343 | 3.8550 |
+| **Imitation Performance** | minADE (Trajectory L2 Error) (m) | **14.7322** | 0.5834 | 2.0909 |
+| **Safety Compliance** | Drivable Area Compliance Rate (%) | **94.62%** | 94.62% | 94.62% |
+| | Collision Rate (%) | **5.38%** | 5.38% | 5.38% |
+| **Comfort & Kinematics** | Mean Trajectory Jerk ($m/s^3$) | **3.1772** | 0.0343 | 7.5471 |
 
 ---
 
@@ -19,9 +19,9 @@ This report compiles the quantitative benchmark metrics and scenario diagnostic 
 
 | Perturbation Suite | minADE (Trajectory L2 Error) (m) | Collision Rate (%) |
 | :--- | :---: | :---: |
-| **Clean Baseline** | **10.3774** | **10.77%** |
-| **Image Noise (Gaussian $\sigma=0.1$)** | **10.4071** | **8.46%** |
-| **Calibration Drift (Yaw Shift $\pm 0.05$ rad)** | **10.5008** | **6.15%** |
+| **Clean Baseline** | **14.7322** | **5.38%** |
+| **Image Noise (Gaussian $\sigma=0.1$)** | **14.3969** | **6.92%** |
+| **Calibration Drift (Yaw Shift $\pm 0.05$ rad)** | **14.5563** | **5.38%** |
 
 ---
 

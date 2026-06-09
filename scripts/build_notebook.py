@@ -144,7 +144,7 @@ print(f"Ego vehicle current yaw rate: {sample_1['ego_state'][1].item():.2f} rad/
 ## 🌐 Stage 1: Unified Cylindrical Canvas Stitching
 
 ### Explanation
-To eliminate redundant overlapping camera pixels and projection seams, `VectorDrive-Route` maps the three front-facing cameras (`CAM_FRONT_LEFT`, `CAM_FRONT`, `CAM_FRONT_RIGHT`) into a unified **120-degree Virtual Cylindrical Canvas** panorama.
+To eliminate redundant overlapping camera pixels and projection seams, `VectorDrive-Route` maps the three front-facing cameras (`CAM_FRONT_LEFT`, `CAM_FRONT`, `CAM_FRONT_RIGHT`) into a unified **180-degree Virtual Cylindrical Canvas** panorama.
 
 #### Coordinate Mapping
 Let $(u_{cyl}, v_{cyl})$ be the pixel coordinates on the cylindrical canvas of dimensions $H_{out} \times W_{out}$.
@@ -177,7 +177,7 @@ plt.show()
 plt.figure(figsize=(18, 10))
 plt.subplot(2, 1, 1)
 plt.imshow(images_cyl_1[0].permute(1, 2, 0).cpu().numpy())
-plt.title("Stage 1 Output: Stitched Cylindrical Panorama (120° FOV)", fontsize=14, fontweight='bold')
+plt.title("Stage 1 Output: Stitched Cylindrical Panorama (180° FOV)", fontsize=14, fontweight='bold')
 plt.axis('off')
 
 plt.subplot(2, 2, 3)
@@ -221,7 +221,7 @@ plt.title("Stage 2 Input: Stitched Cylindrical Panorama", fontsize=12)
 plt.axis('off')
 
 plt.subplot(2, 1, 2)
-plt.imshow(feat_mean_1, cmap='viridis')
+plt.imshow(feat_mean_1, cmap='viridis', aspect='equal')
 plt.title("Stage 2 Output: Stride-8 Perspective Features (Average Channel Activation)", fontsize=12, fontweight='bold')
 plt.colorbar(orientation='horizontal', pad=0.15)
 plt.axis('off')
@@ -259,16 +259,9 @@ gt_depth_1 = sample_1['depth_target'][0].numpy()
 depth_mask_1 = sample_1['depth_mask'][0].numpy()
 
 plt.figure(figsize=(18, 12))
-# Subplot 1: Predicted Expected Depth Map
-plt.subplot(2, 1, 1)
-plt.imshow(expected_depth_1, cmap='inferno', vmin=2.0, vmax=42.0)
-plt.title("Stage 3 Output: Predicted Expected Depth Map", fontsize=14, fontweight='bold')
-plt.colorbar(label="Depth (meters)")
-plt.axis('off')
 
-# Subplot 2: Predicted Depth overlayed with sparse LiDAR ground-truth depth
-plt.subplot(2, 1, 2)
-plt.imshow(expected_depth_1, cmap='inferno', vmin=2.0, vmax=42.0)
+# Predicted Depth overlayed with sparse LiDAR ground-truth depth
+plt.imshow(expected_depth_1, cmap='inferno', vmin=2.0, vmax=42.0, aspect='equal')
 y_indices, x_indices = np.where(depth_mask_1 > 0.5)
 if len(x_indices) > 0:
     plt.scatter(x_indices, y_indices, c=gt_depth_1[y_indices, x_indices], cmap='inferno', 
@@ -307,12 +300,12 @@ smooth_bev_np = torch.mean(x_bev_smoothed_1[0], dim=0).detach().cpu().numpy()
 
 plt.figure(figsize=(18, 8))
 plt.subplot(1, 2, 1)
-plt.imshow(raw_bev_np, cmap='magma', origin='lower')
+plt.imshow(raw_bev_np, cmap='magma', origin='upper', extent=[-20, 20, 0, 40])
 plt.title("Stage 4 Intermediate: Raw Voxel Pooled BEV Grid\\n(Note radial projection ray streaks)", fontsize=13)
 plt.colorbar(fraction=0.046, pad=0.04)
 
 plt.subplot(1, 2, 2)
-plt.imshow(smooth_bev_np, cmap='magma', origin='lower')
+plt.imshow(smooth_bev_np, cmap='magma', origin='upper', extent=[-20, 20, 0, 40], vmax=1.5)
 plt.title("Stage 4 Output: Smoothed BEV Grid (Post BEVResBlocks)\\n(Horizontal context sharing reduces ray streaks)", fontsize=13, fontweight='bold')
 plt.colorbar(fraction=0.046, pad=0.04)
 plt.tight_layout()
@@ -368,15 +361,15 @@ fused_np = torch.mean(h_next_1[0], dim=0).detach().cpu().numpy()
 
 plt.figure(figsize=(18, 5))
 plt.subplot(1, 3, 1)
-plt.imshow(prev_np, cmap='plasma', origin='lower')
+plt.imshow(prev_np, cmap='plasma', origin='upper', extent=[-20, 20, 0, 40])
 plt.title("Input: Previous BEV State h(t-1)", fontsize=12)
 
 plt.subplot(1, 3, 2)
-plt.imshow(warped_np, cmap='plasma', origin='lower')
+plt.imshow(warped_np, cmap='plasma', origin='upper', extent=[-20, 20, 0, 40])
 plt.title("Intermediate: Warped Previous BEV State", fontsize=12)
 
 plt.subplot(1, 3, 3)
-plt.imshow(fused_np, cmap='plasma', origin='lower')
+plt.imshow(fused_np, cmap='plasma', origin='upper', extent=[-20, 20, 0, 40])
 plt.title("Output: Fused Recurrent BEV State h(t)", fontsize=12, fontweight='bold')
 plt.tight_layout()
 plt.show()
@@ -424,12 +417,12 @@ plt.grid(True, alpha=0.3)
 # Subplot 2: Trajectories visual plot
 drivable_prob_1 = torch.sigmoid(drivable_preds_1[0, 0]).detach().cpu().numpy()
 plt.subplot(1, 2, 2)
-plt.imshow(drivable_prob_1, cmap='gray', origin='lower')
+plt.imshow(drivable_prob_1, cmap='gray', origin='upper', extent=[-20, 20, 0, 40])
 
 # Plot all candidate trajectories, fading out unselected ones
 for k in range(16):
-    grid_x = (trajectories_np_1[k, :, 0] + 20.0) / 40.0 * 100.0
-    grid_y = trajectories_np_1[k, :, 1] / 40.0 * 100.0
+    grid_x = trajectories_np_1[k, :, 0]
+    grid_y = trajectories_np_1[k, :, 1]
     
     alpha_val = max(0.1, probs_1[k] / probs_1.max())
     if k == best_idx_1:
@@ -438,16 +431,16 @@ for k in range(16):
         plt.plot(grid_x, grid_y, color='blue', alpha=alpha_val * 0.4, linewidth=1.5, zorder=2)
 
 # Plot ground-truth trajectory
-gt_grid_x = (gt_traj_1[:, 0] + 20.0) / 40.0 * 100.0
-gt_grid_y = gt_traj_1[:, 1] / 40.0 * 100.0
+gt_grid_x = gt_traj_1[:, 0]
+gt_grid_y = gt_traj_1[:, 1]
 plt.plot(gt_grid_x, gt_grid_y, color='gold', linewidth=3, linestyle='--', marker='x', label='Ground-Truth Route', zorder=6)
 
 plt.title("Stage 7 Output: Refined Trajectories on Drivable Area Grid", fontsize=13, fontweight='bold')
 plt.legend()
-plt.xlim(0, 100)
-plt.ylim(0, 100)
-plt.xlabel("Grid X (lateral, 0.4m/pix)")
-plt.ylabel("Grid Y (longitudinal, 0.4m/pix)")
+plt.xlim(-20, 20)
+plt.ylim(0, 40)
+plt.xlabel("Ego X (lateral, meters)")
+plt.ylabel("Ego Y (longitudinal, meters)")
 plt.tight_layout()
 plt.show()
 """)
@@ -483,16 +476,18 @@ pred_map_1[occupancy_pred_1 > 0.45] = [1.0, 0.0, 0.0]
 
 plt.figure(figsize=(18, 8))
 plt.subplot(1, 2, 1)
-plt.imshow(gt_map_1)
+plt.imshow(gt_map_1, origin='upper', extent=[-20, 20, 0, 40])
 plt.title("Stage 8 Input: Ground Truth Map\\n(Green = Drivable, Red = Obstacles)", fontsize=13)
-plt.gca().invert_yaxis()
-plt.axis('off')
+plt.axis('on')
+plt.xlabel("Ego X (lateral, meters)")
+plt.ylabel("Ego Y (longitudinal, meters)")
 
 plt.subplot(1, 2, 2)
-plt.imshow(pred_map_1)
+plt.imshow(pred_map_1, origin='upper', extent=[-20, 20, 0, 40])
 plt.title("Stage 8 Output: Predicted Map (Threshold = 0.45)\\n(Green = Drivable, Red = Obstacles)", fontsize=13, fontweight='bold')
-plt.gca().invert_yaxis()
-plt.axis('off')
+plt.axis('on')
+plt.xlabel("Ego X (lateral, meters)")
+plt.ylabel("Ego Y (longitudinal, meters)")
 plt.tight_layout()
 plt.show()
 """)

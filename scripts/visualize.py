@@ -103,26 +103,28 @@ def main():
     gt_map[gt_drivable > 0.5] = [0.0, 0.8, 0.0] # Green
     gt_map[gt_occupancy > 0.5] = [1.0, 0.0, 0.0] # Red
     
-    axes[1, 0].imshow(gt_map)
+    axes[1, 0].imshow(gt_map, origin='upper', extent=[-20, 20, 0, 40])
     axes[1, 0].set_title("GT Map (Green=Drivable, Red=Obstacles)", fontsize=14)
-    axes[1, 0].invert_yaxis()
+    axes[1, 0].set_xlabel("Ego X (lateral, meters)")
+    axes[1, 0].set_ylabel("Ego Y (longitudinal, meters)")
     
     # Panel 4: Predicted Drivable Area & Occupancy
     pred_map = np.zeros((100, 100, 3))
     pred_map[drivable_pred > 0.45] = [0.0, 0.8, 0.0]
     pred_map[occupancy_pred > 0.45] = [1.0, 0.0, 0.0]
     
-    axes[1, 1].imshow(pred_map)
+    axes[1, 1].imshow(pred_map, origin='upper', extent=[-20, 20, 0, 40])
     axes[1, 1].set_title("Predicted Map (Threshold = 0.45)", fontsize=14)
-    axes[1, 1].invert_yaxis()
+    axes[1, 1].set_xlabel("Ego X (lateral, meters)")
+    axes[1, 1].set_ylabel("Ego Y (longitudinal, meters)")
     
     # Panel 5: Trajectory Candidates on Occupancy Grid
-    axes[2, 0].imshow(occupancy_pred, cmap='gray', origin='lower')
+    axes[2, 0].imshow(occupancy_pred, cmap='gray', origin='upper', extent=[-20, 20, 0, 40])
     # Plot candidate trajectories
     for k in range(16):
-        # Convert metric coordinates (X: [-20, 20], Y: [0, 40]) to grid cells (100x100)
-        grid_x = (trajectories[k, :, 0] + 20.0) / 40.0 * 100.0
-        grid_y = trajectories[k, :, 1] / 40.0 * 100.0
+        # Plot metric coordinates directly
+        grid_x = trajectories[k, :, 0]
+        grid_y = trajectories[k, :, 1]
         if k == best_idx:
             axes[2, 0].plot(grid_x, grid_y, color='cyan', linewidth=3, marker='o', label='Chosen trajectory')
         else:
@@ -130,19 +132,21 @@ def main():
             
     # Plot GT trajectory
     gt_traj = sample['future_traj'].numpy()
-    gt_grid_x = (gt_traj[:, 0] + 20.0) / 40.0 * 100.0
-    gt_grid_y = gt_traj[:, 1] / 40.0 * 100.0
+    gt_grid_x = gt_traj[:, 0]
+    gt_grid_y = gt_traj[:, 1]
     axes[2, 0].plot(gt_grid_x, gt_grid_y, color='gold', linewidth=3, linestyle='--', marker='x', label='GT trajectory')
     axes[2, 0].set_title("Trajectory Candidates on Occupancy", fontsize=14)
     axes[2, 0].legend()
-    axes[2, 0].set_xlim(0, 100)
-    axes[2, 0].set_ylim(0, 100)
+    axes[2, 0].set_xlim(-20, 20)
+    axes[2, 0].set_ylim(0, 40)
+    axes[2, 0].set_xlabel("Ego X (lateral, meters)")
+    axes[2, 0].set_ylabel("Ego Y (longitudinal, meters)")
     
     # Panel 6: Trajectories on Drivable Area
-    axes[2, 1].imshow(drivable_pred, cmap='gray', origin='lower')
+    axes[2, 1].imshow(drivable_pred, cmap='gray', origin='upper', extent=[-20, 20, 0, 40])
     for k in range(16):
-        grid_x = (trajectories[k, :, 0] + 20.0) / 40.0 * 100.0
-        grid_y = trajectories[k, :, 1] / 40.0 * 100.0
+        grid_x = trajectories[k, :, 0]
+        grid_y = trajectories[k, :, 1]
         if k == best_idx:
             axes[2, 1].plot(grid_x, grid_y, color='cyan', linewidth=3, marker='o', label='Chosen trajectory')
         else:
@@ -151,8 +155,10 @@ def main():
     axes[2, 1].plot(gt_grid_x, gt_grid_y, color='gold', linewidth=3, linestyle='--', marker='x', label='GT trajectory')
     axes[2, 1].set_title("Trajectory Candidates on Drivable Area", fontsize=14)
     axes[2, 1].legend()
-    axes[2, 1].set_xlim(0, 100)
-    axes[2, 1].set_ylim(0, 100)
+    axes[2, 1].set_xlim(-20, 20)
+    axes[2, 1].set_ylim(0, 40)
+    axes[2, 1].set_xlabel("Ego X (lateral, meters)")
+    axes[2, 1].set_ylabel("Ego Y (longitudinal, meters)")
     
     # Save the plot
     os.makedirs(os.path.dirname(args.save_path), exist_ok=True)

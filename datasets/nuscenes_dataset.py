@@ -31,9 +31,9 @@ def generate_sparse_depth(points_ego, H_feat, W_feat, horizontal_fov, vertical_f
     depth_mask = (depth >= min_depth) & (depth <= max_depth)
     X_lat, Y_fwd, Z_up, depth = X_lat[depth_mask], Y_fwd[depth_mask], Z_up[depth_mask], depth[depth_mask]
     
-    # Calculate ray angles
+    # Calculate ray angles (with 1.5m camera height offset subtracted from Z_up)
     theta = np.arctan2(-X_lat, Y_fwd)
-    phi = np.arctan2(Z_up, np.sqrt(X_lat**2 + Y_fwd**2))
+    phi = np.arctan2(Z_up - 1.5, np.sqrt(X_lat**2 + Y_fwd**2))
     
     # Map to feature map indices
     idx_u = ((horizontal_fov / 2.0 - theta) * (W_feat / horizontal_fov)).astype(np.int32)
@@ -83,7 +83,7 @@ def generate_occupancy_grid(points_ego, H_bev=100, W_bev=100,
     
     # Convert metric position to grid index
     idx_x = ((X_lat - x_range[0]) / (x_range[1] - x_range[0]) * W_bev).astype(np.int32)
-    idx_y = ((Y_fwd - y_range[0]) / (y_range[1] - y_range[0]) * H_bev).astype(np.int32)
+    idx_y = ((y_range[1] - Y_fwd) / (y_range[1] - y_range[0]) * H_bev).astype(np.int32)
     
     # Clip index boundaries
     idx_x = np.clip(idx_x, 0, W_bev - 1)
@@ -102,7 +102,7 @@ class NuscenesDataset(Dataset):
     and constructs planning labels (expert routes).
     """
     def __init__(self, version='v1.0-mini', dataroot='data/nuscenes', 
-                 split='train', T_future=8, horizontal_fov=120.0, 
+                 split='train', T_future=8, horizontal_fov=180.0, 
                  vertical_fov=40.0, H_feat=32, W_feat=96, 
                  H_bev=100, W_bev=100, downscale_factor=2):
         super().__init__()
