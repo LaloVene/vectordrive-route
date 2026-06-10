@@ -19,10 +19,10 @@ pip install -r requirements.txt
 
 Run training, evaluation, or visualization scripts from the project root. Examples:
 
-Train (short run):
+Train:
 
 ```bash
-PYTHONPATH=. .venv/bin/python scripts/train.py --epochs 5 --batch_size 4 --lr 2e-4 --save_dir checkpoints
+PYTHONPATH=. .venv/bin/python scripts/train.py --epochs 50 --batch_size 4 --lr 2e-4 --save_dir checkpoints
 ```
 
 Evaluate:
