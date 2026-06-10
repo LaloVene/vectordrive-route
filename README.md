@@ -1,10 +1,57 @@
 # VectorDrive-Route
 
-`VectorDrive-Route` is an end-to-end multi-view camera-to-3D Bird's-Eye-View (BEV) trajectory planner for autonomous driving, trained and evaluated on the `nuScenes` dataset.
+Disclaimer: this repository is a research prototype. Code, notebooks, and checkpoints change frequently.
 
-The pipeline processes multi-camera streams, constructs a spatial-temporal BEV scene representation, and uses a query-based cross-attention head to select and refine safe driving trajectories.
+VectorDrive-Route maps multi-camera inputs to a Bird's-Eye-View (BEV) representation and predicts future ego trajectories. The code trains and evaluates models on the nuScenes dataset.
 
-## Architecture Highlights
+## Quick Start
+
+- Clone and install dependencies:
+
+```bash
+git clone https://github.com/LaloVene/vectordrive-route.git
+cd vectordrive-route
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+- Download `nuScenes-mini` and place it under `data/nuscenes/`.
+
+Run training, evaluation, or visualization scripts from the project root. Examples:
+
+Train (short run):
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/train.py --epochs 5 --batch_size 4 --lr 2e-4 --save_dir checkpoints
+```
+
+Evaluate:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/evaluate.py --checkpoint checkpoints/best_model.pth
+```
+
+Visualize diagnostics:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/visualize.py --checkpoint checkpoints/best_model.pth --save_path checkpoints/diagnostics.png
+```
+
+## Project Layout
+
+- `baselines/` — simple baselines (constant velocity, ego-mlp)
+- `checkpoints/` — model checkpoints and diagnostics
+- `data/nuscenes/` — dataset (put nuScenes-mini here)
+- `datasets/` — dataset loader and grid targets
+- `geometry/` — projection and voxel pooling code
+- `losses/` — multi-task losses
+- `metrics/` — evaluation metrics
+- `models/` — model components and planning head
+- `scripts/` — train/evaluate/visualize runners
+- `utils/` — utilities (e.g., k-means anchors)
+
+## Architecture Overview
 
 ```mermaid
 graph TD
@@ -32,159 +79,117 @@ graph TD
     class TRAJ,WAY,PROB,MAPS outputs;
 ```
 
-- **Cylindrical Camera Stitching**: Maps multi-camera feeds (`CAM_FRONT_LEFT`, `CAM_FRONT`, `CAM_FRONT_RIGHT`) into a stitched 120° panorama canvas and eliminates redundant overlapping pixels.
-- **Backbone & Categorical Depth Lift (LSS)**: Uses a `ResNet-18` backbone to extract perspective features, and categorizes them into discrete depth bins (2.0m to 42.0m range) using sparse depth maps constructed from raw 32-beam `LIDAR_TOP` scans.
-- **Vectorized Voxel Pooling (Splat)**: Aggregates frustum context into a top-down $100 \times 100$ BEV grid representing $X \in [-20, 20]\text{m}$ and $Y \in [0, 40]\text{m}$ at 0.4m resolution.
-- **Temporal Recurrent Alignment**: Projects and warps historical BEV features into the current vehicle coordinate frame using analytical ego-motion transforms ($v_x, \omega$). Fuses the current state and warped historical states via a spatial ConvGRU.
-- **Cross-Attention Trajectory Planning Head**: Clusters expert trajectories offline using K-Means into 16 lateral intent anchors. Queries latent BEV scene tokens with these anchors via cross-attention, regressing coordinate offsets and outputting path selection probabilities.
-- **Auxiliary Decoding & Safety Regularization**: Learns auxiliary drivable area and obstacle occupancy representations, penalizing trajectory plans that intersect predicted obstacles by sampling the occupancy grid differentiably.
+Key components (short):
 
-## Academic Foundations & Key Differences
+- Cylindrical projection: stitches front cameras into a panorama and reprojects pixels for sampling.
+- Backbone + LSS: extracts perspective features and lifts them into depth-conditioned frustums.
+- Voxel pooling: aggregates frustum features into a top-down BEV grid (100×100, X∈[-20,20]m, Y∈[0,40]m).
+- Temporal fusion: warps past BEV states to the current frame and fuses them with a ConvGRU.
+- Planning head: queries compressed BEV tokens with K-Means anchors (K=16) to classify and regress candidate trajectories.
+- Auxiliary decoders: predict drivable area and occupancy grids used for safety checks.
 
-`VectorDrive-Route` is a hardware-optimized, Colab-scale prototype. It abstracts the design philosophies of large-scale baselines into a lightweight framework.
+## Stages and Visualizations
 
-| Baseline Architecture | Core Approach in SOTA Literature                                                                                        | Lightweight Adaptation in `VectorDrive-Route`                                                                                             |
-| :-------------------- | :---------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------- |
-| **`BEVFormer`**       | Uses multi-camera spatiotemporal deformable cross-attention to construct BEV representations.                           | Replaces full transformer attention with a depth-conditioned LSS lifting module and vectorized voxel pooling to run within memory limits. |
-| **`UniAD`**           | Unifies multi-task modules (perception, tracking, mapping, prediction, occupancy, planning) in a single large network.  | Simplifies the pipeline to parallel auxiliary decoders (drivable area and obstacle occupancy) to guide planning and diagnostics.          |
-| **`VADv2`**           | Employs a large probabilistic planning action vocabulary to map continuous environments and handle driving uncertainty. | Uses a compute-light set of 16 trajectory anchors generated offline via K-Means clustering over ground-truth paths.                       |
-| **`VECTOR-Drive`**    | Deploys a multi-billion parameter Vision-Language-Action (VLA) backbone with semantic-aware expert routing layers.      | Bypasses language tokens, using a spatiotemporal visual pipeline to compress latent BEV features into planning tokens.                    |
-| **`GAIA-1`**          | Utilizes an unsupervised generative world model to simulate driving videos, vehicle actions, and scene futures.         | Bypasses generative rollouts to focus on discriminative trajectory regression and classification.                                         |
+This section explains the eight visualization stages and links the notebook examples.
 
-## Installation & Setup
+1. Stage 1 — Cylindrical Stitching
+   - What: Merge three front cameras into a single cylindrical panorama.
+   - Why: Remove overlap and create a continuous sampling canvas for projection.
+   - Visuals: stitched panorama, validity and seam masks.
 
-1. **Clone the Repository**
+2. Stage 2 — Backbone Features
+   - What: Run a ResNet-18 backbone on the panorama to get dense features.
+   - Why: Prepare features for depth estimation and lifting.
+   - Visuals: mean-channel activation maps.
 
-```bash
-git clone https://github.com/LaloVene/vectordrive-route.git
-cd vectordrive-route
+3. Stage 3 — LSS Depth Lift
+   - What: Predict categorical depth probabilities and lift 2D features into a 3D frustum.
+   - Why: Provide depth-conditioned features for BEV pooling.
+   - Visuals: expected depth map vs sparse LiDAR points.
+
+4. Stage 4 — Voxel Pooling & Smoothing
+   - What: Project frustum features into a BEV grid and apply lateral smoothing (BEVResBlocks).
+   - Why: Gather scene context and reduce radial projection streaks.
+   - Visuals: raw vs smoothed BEV feature maps.
+
+5. Stage 5 — Warping & Temporal Fusion
+   - What: Warp the previous BEV to the current frame using ego motion, then fuse via ConvGRU.
+   - Why: Build a temporally consistent BEV state.
+   - Visuals: previous, warped, and fused BEV maps.
+
+6. Stage 6 — Trajectory Classification
+   - What: Compress BEV into scene tokens and score K=16 anchors with cross-attention.
+   - Why: Rank candidate paths.
+   - Visuals: anchor selection probabilities.
+
+7. Stage 7 — Trajectory Regression
+   - What: Regress offsets for selected anchors to get refined waypoints.
+   - Why: Produce metric trajectories the vehicle can follow.
+   - Visuals: all candidate trajectories and chosen path overlayed on drivable map.
+
+8. Stage 8 — Auxiliary Decoders & Safety Metrics
+   - What: Predict drivable and occupancy grids; compute collision/drivable-compliance for trajectories.
+   - Why: Provide safety checks and diagnostics.
+   - Visuals: side-by-side ground-truth vs predicted maps and annotated metrics.
+
+Open the notebook to see the figures and the code that produces them: [visualizations.ipynb](visualizations.ipynb).
+
+## Diagnostics
+
+The visualization script saves diagnostic panels illustrating panorama inputs, depth lifts, BEV maps, and planned trajectories. A sample output is saved to `checkpoints/diagnostics.png`.
+
+![Diagnostics](checkpoints/diagnostics.png)
+
+### Stage images
+
+Below are per-stage images produced by `scripts/visualize_stages.py`. These illustrate the pipeline steps from input stitching to final decoders.
+
+- Stage 1 — Cylindrical panorama
+
+  ![Stage1 Panorama](checkpoints/stages/stage1_panorama.png)
+
+- Stage 2 — Backbone mean activations
+
+  ![Stage2 Backbone](checkpoints/stages/stage2_backbone_mean.png)
+
+- Stage 3 — Predicted expected depth
+
+  ![Stage3 Depth](checkpoints/stages/stage3_expected_depth.png)
+
+- Stage 4 — Raw BEV (pre-smoothing)
+
+  ![Stage4 BEV Raw](checkpoints/stages/stage4_bev_raw.png)
+
+- Stage 5 — BEV after smoothing
+
+  ![Stage5 BEV Smoothed](checkpoints/stages/stage5_bev_smoothed.png)
+
+- Stage 6 — Warped previous BEV (visualization)
+
+  ![Stage6 Prev Warped](checkpoints/stages/stage6_prev_warped.png)
+
+- Stage 7 — Candidate trajectories (chosen in cyan)
+
+  ![Stage7 Trajectories](checkpoints/stages/stage7_trajectories.png)
+
+- Stage 8 — Decoders (drivable=green, occupancy=red)
+
+  ![Stage8 Decoders](checkpoints/stages/stage8_decoders_rgb.png)
+
+## Checkpoints & Loading Notes
+
+- Some checkpoints contain pickled objects beyond a raw `state_dict`. To load a checkpoint that contains extra fields, use:
+
+```python
+checkpoint = torch.load(path, map_location=device, weights_only=False)
+model = VectorDriveRouteModel(anchors=checkpoint.get('anchors'))
+model.load_state_dict(checkpoint['model_state_dict'], strict=False)
 ```
 
-2. **Configure the Environment**
-   Set up `Python 3.11` to use precompiled binary wheels for geospatial dependencies, and install the package requirements:
+## Evaluation Notes
 
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
+- The repo includes open-loop evaluation scripts (ADE, collision checks, drivable compliance). Open-loop metrics can penalize reasonable plans when the human driver chooses a different maneuver; consider closed-loop simulation for end-to-end behavior evaluation.
 
-3. **Download Dataset**
-   Download the `nuScenes-mini` dataset split and extract it to the `data/` directory at the project root. Ensure the project structure matches the layout below:
+## Contact
 
-```text
-vectordrive-route/
-├── baselines/         # Non-visual baselines
-├── checkpoints/       # Saved models and loss plots
-├── data/              # Dataset root
-│   └── nuscenes/
-│       ├── maps/
-│       ├── samples/
-│       ├── sweeps/
-│       └── v1.0-mini/
-├── datasets/          # Dataset loading and ground truth grids
-├── geometry/          # Cylindrical panoramas and voxel pooling
-├── losses/            # Multi-task loss functions
-├── metrics/           # Evaluation metrics (ADE, comfort, safety)
-├── models/            # Core model definitions and planning heads
-├── scripts/           # Execution scripts (train, evaluate, visualize)
-└── utils/             # Trajectory anchor clustering utility
-```
-
-## Running the Pipeline
-
-### 1. Run the Training Loop
-
-Train the `VectorDrive-Route` model:
-
-```bash
-PYTHONPATH=. .venv/bin/python scripts/train.py \
-    --epochs 5 \
-    --batch_size 4 \
-    --lr 2e-4 \
-    --save_dir checkpoints
-```
-
-### 2. Run the Quantitative Evaluation
-
-Benchmark the model against `Constant Velocity` and `Ego-State MLP` baselines across cruising, deceleration, and sharp turn scenarios, including camera noise and calibration drift perturbations:
-
-```bash
-PYTHONPATH=. .venv/bin/python scripts/evaluate.py \
-    --checkpoint checkpoints/best_model.pth
-```
-
-### 3. Generate Visual Diagnostics
-
-Generate and save diagnostic plots containing stitched panoramas, depth maps, predicted drivable/obstacle grids, and planned trajectories:
-
-```bash
-PYTHONPATH=. .venv/bin/python scripts/visualize.py \
-    --checkpoint checkpoints/best_model.pth \
-    --save_path checkpoints/diagnostics.png
-```
-
-## Evaluation & Verification Results
-
-Run the evaluation script to generate and export quantitative benchmarks and scenario diagnostic panels:
-
-```bash
-PYTHONPATH=. .venv/bin/python scripts/evaluate.py
-```
-
-### Trajectory Planner Benchmark
-
-| Metric Category           | Specific Evaluation Metric        | Your Model's Score | Constant Velocity Baseline | Ego-State MLP Baseline |
-| :------------------------ | :-------------------------------- | :----------------: | :------------------------: | :--------------------: |
-| **Imitation Performance** | minADE (Trajectory L2 Error) (m)  |    **10.3774**     |           0.5834           |         2.9092         |
-| **Safety Compliance**     | Drivable Area Compliance Rate (%) |     **89.23%**     |           94.62%           |         93.85%         |
-|                           | Collision Rate (%)                |     **10.77%**     |           5.38%            |         6.15%          |
-| **Comfort & Kinematics**  | Mean Trajectory Jerk ($m/s^3$)    |     **1.7900**     |           0.0343           |         3.8550         |
-
-### Perturbation Robustness Performance
-
-| Perturbation Suite                               | minADE (Trajectory L2 Error) (m) | Collision Rate (%) |
-| :----------------------------------------------- | :------------------------------: | :----------------: |
-| **Clean Baseline**                               |           **10.3774**            |     **10.77%**     |
-| **Image Noise (Gaussian $\sigma=0.1$)**          |           **10.4071**            |     **8.46%**      |
-| **Calibration Drift (Yaw Shift $\pm 0.05$ rad)** |           **10.5008**            |     **6.15%**      |
-
-### Analysis: Data Starvation & Open-Loop Evaluation Limits
-
-The evaluation benchmarks indicate that the model has reached performance limits imposed by the small dataset volume and the open-loop testing format:
-
-1. **The `minADE` Performance Gap**:
-   - **Root Cause**: The model reports a `minADE` of `10.3774 m` compared to the `Constant Velocity` baseline error of `0.5834 m`. The `nuScenes-mini` dataset contains 10 scenes where the vehicle primarily travels in a straight line or remains stationary.
-   - **Metric Limitation**: Under open-loop imitation evaluation, if the ego-vehicle plans a collision-free straight path while the human driver performs a turn, the metric penalizes the plan based on Euclidean distance, resulting in a 10m to 15m penalty.
-   - **Industry Standard**: This discrepancy highlights why closed-loop simulation environments (e.g., `CARLA`, `NAVSIM`) are preferred over open-loop metrics for evaluating planning safety.
-
-2. **Visual Verification of Trajectory Planning**:
-   - **Mitigated Frustum Streaks**: The `BEVResBlock` horizontal context-sharing layer merges radial camera projection streaks into coherent spatial features.
-   - **Coherent Path Distribution**: The _Trajectory Candidates on Drivable Area_ plot confirms a structured spatial distribution of planned paths.
-   - **Planning Head Execution**: The planning head avoids trajectory paralysis, choosing a smooth forward path through intersections with a comfort metric of `1.7900 m/s³` mean jerk.
-
-3. **Early Stopping at Epoch 37**:
-   - **Train Loss (`1.4744`)**: The model minimizes loss on training samples.
-   - **Validation Depth Loss (`0.9826`)**: The depth estimation branch reaches a physical bottleneck due to sparse 32-beam `LIDAR_TOP` scans across only 10 scenes.
-   - **Validation Classification Loss (`3.8312`)**: The trajectory anchor classifier reaches a generalization ceiling due to a lack of diverse training scenarios.
-   - **Prototype Status**: Under compute and data constraints, the pipeline executes, the coordinate systems map correctly, and the network generates smooth, collision-free trajectories. Training on the full 1,000-scene `nuScenes` dataset is required to close the classification generalization gap.
-
-## Key Technical Challenges & Solutions
-
-### 1. Ego-Vehicle Self-Reflection Filtering (Planner Paralysis)
-
-- **Challenge**: The LiDAR sensor captured point-cloud reflections from the ego-vehicle's hood, side mirrors, and roof. The occupancy grid generator classified these self-reflections as obstacles at the coordinate origin $(0,0)$, triggering false emergency braking and planner paralysis.
-- **Solution**: Implemented a spatial bounding box exclusion filter to ignore points within the vehicle footprint:
-  $$X_{lat} \in [-1.0, 1.0]\text{m} \quad \text{and} \quad Y_{fwd} \in [0.0, 3.0]\text{m}$$
-- **Result**: Eliminated origin-centered "ghost obstacles," restoring planner stability.
-
-### 2. Radial Frustum Streak Noise & Logit Squeezing
-
-- **Challenge**: Lift-Splat-Shoot (LSS) view transformers smear features uniformly along geometric camera projection rays, generating radial fan-shaped noise streaks. Additionally, gradient normalization squeezed auxiliary decoder logits, causing empty binary grids at standard $0.5$ thresholds.
-- **Solution**: Deployed a dual `BEVResBlock` network post-voxel-pooling to enable horizontal spatial context sharing on the BEV plane. Set auxiliary loss weights `w_drivable` and `w_occupancy` to `2.0` to shape the logit distributions.
-- **Result**: Reduced validation loss from `10.19` to `9.99`, increased drivable path confidence to `0.86`, and resolved planning head paralysis.
-
-### 3. Data Infrastructure & Compute Optimization
-
-- **Design Rigor**: Implemented a pipeline that executes geometric coordinate transformations ($World \rightarrow Ego \rightarrow Pixel$) and trains under a 12GB VRAM constraint.
-- **VRAM Management**: Integrated `FP16` mixed-precision training and gradient accumulation to ensure compatibility with standard hardware (e.g., Google Colab).
+For questions or collaboration, open an issue or contact the author.
