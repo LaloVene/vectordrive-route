@@ -1,6 +1,7 @@
 # VectorDrive-Route
 
-Disclaimer: this repository is a research prototype. Code, notebooks, and checkpoints change frequently.
+> [!WARNING]
+> This repository is a research prototype. Code, notebooks, and checkpoints change frequently.
 
 VectorDrive-Route maps multi-camera inputs to a Bird's-Eye-View (BEV) representation and predicts future ego trajectories. The code trains and evaluates models on the nuScenes dataset.
 
@@ -9,8 +10,6 @@ VectorDrive-Route maps multi-camera inputs to a Bird's-Eye-View (BEV) representa
 - Clone and install dependencies:
 
 ```bash
-git clone https://github.com/LaloVene/vectordrive-route.git
-cd vectordrive-route
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -164,11 +163,7 @@ Below are per-stage images produced by `scripts/visualize_stages.py`. These illu
 
   ![Stage5 BEV Smoothed](checkpoints/stages/stage5_bev_smoothed.png)
 
-- Stage 6 — Warped previous BEV (visualization)
-
-  ![Stage6 Prev Warped](checkpoints/stages/stage6_prev_warped.png)
-
-- Stage 7 — Candidate trajectories (chosen in cyan)
+- Stage 6 & 7 — Candidate trajectories (chosen in cyan)
 
   ![Stage7 Trajectories](checkpoints/stages/stage7_trajectories.png)
 
